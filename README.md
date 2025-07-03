@@ -1,189 +1,300 @@
-# AdaCLIP (Detecting Anomalies for Novel Categories)
-[![HuggingFace Space](https://img.shields.io/badge/🤗-HuggingFace%20Space-cyan.svg)](https://huggingface.co/spaces/Caoyunkang/AdaCLIP)
+# AdaCLIP-Finetune
+This repo is the finetune implementation for the paper "AdaCLIP: Towards Pragmatic Multimodal Video Retrieval"
 
-> [**ECCV 24**] [**AdaCLIP: Adapting CLIP with Hybrid Learnable Prompts for Zero-Shot Anomaly Detection**](https://arxiv.org/abs/2407.15795).
->
-> by [Yunkang Cao](https://caoyunkang.github.io/), [Jiangning Zhang](https://zhangzjn.github.io/),  [Luca Frittoli](https://scholar.google.com/citations?user=cdML_XUAAAAJ), 
-> [Yuqi Cheng](https://scholar.google.com/citations?user=02BC-WgAAAAJ&hl=en), [Weiming Shen](https://scholar.google.com/citations?user=FuSHsx4AAAAJ&hl=en), [Giacomo Boracchi](https://boracchi.faculty.polimi.it/) 
-> 
+![arch](images/adaclip_design.jpg)
 
-## Introduction 
-Zero-shot anomaly detection (ZSAD) targets the identification of anomalies within images from arbitrary novel categories. 
-This study introduces AdaCLIP for the ZSAD task, leveraging a pre-trained vision-language model (VLM), CLIP. 
-AdaCLIP incorporates learnable prompts into CLIP and optimizes them through training on auxiliary annotated anomaly detection data. 
-Two types of learnable prompts are proposed: \textit{static} and \textit{dynamic}. Static prompts are shared across all images, serving to preliminarily adapt CLIP for ZSAD. 
-In contrast, dynamic prompts are generated for each test image, providing CLIP with dynamic adaptation capabilities. 
-The combination of static and dynamic prompts is referred to as hybrid prompts, and yields enhanced ZSAD performance. 
-Extensive experiments conducted across 14 real-world anomaly detection datasets from industrial and medical domains indicate that AdaCLIP outperforms other ZSAD methods and can generalize better to different categories and even domains. 
-Finally, our analysis highlights the importance of diverse auxiliary data and optimized prompts for enhanced generalization capacity.
+Incorporating large image-text foundation models such as CLIP has
+substantially improved the performance of the multimodal video
+retrieval task. However, how to practically sample the frames from
+a video and aggregate the frame features into a video representation
+is still an open research question. In particular, real-world
+deployment scenarios, such as embodiment within consumer electronics
+or cloud-based inference pipelines, require two key facets of
+retrieval (representation building and search) to be computationally
+light and fast. In this paper, we propose AdaCLIP, a computationand
+latency-aware system for pragmatic multimodal video retrieval.
+AdaCLIP consists of a *learning-based frame selection module* to select
+informative frames and a *query-independent frame aggregation
+module* to obtain strong video representations from the frame features.
+Specifically, in the frame selection module, we introduce a
+differentiable *Hard-Top-k* algorithm to sample a subset of the frames
+while optimizing the performance of the video retrieval task in an
+end-to-end manner. Moreover, to be latency-aware, we also propose
+a query-independent lightweight approach, *MLP-Score*, to aggregate
+the frame features into the video representation, which offers
+up to 142x speedup on GPU and 822x speedup on CPU in similarity
+search time compared to query-dependent matching methods.
+Experimental results on several popular video retrieval datasets
+confirm the effectiveness of AdaCLIP.
 
-## Corrections
-- The description to the utilized training set in our paper is not accurate. By default, we utilize MVTec AD & ColonDB for training,
-and VisA & ClinicDB are utilized for evaluations on MVTec AD & ColonDB. 
+# Prerequisites
 
-## Overview of AdaCLIP
-![overview](asset/framework.png)
+- Linux (Ubuntu 22.04.1 or later is recommended)
+- Python 3.10
+- Packages:
+    - ffmpeg (`$sudo apt-get install ffmpeg`)
+- Datasets: [ActivityNet Dense Captions](https://cs.stanford.edu/people/ranjaykrishna/densevid/), [MSRVTT](http://ms-multimedia-challenge.com/2017/dataset), [DiDeMo](https://github.com/LisaAnne/LocalizingMoments)
 
-## 🛠️ Getting Started
+# How to Install
+## Install on NVIDIA
+Create a conda environment and install the appropriate packages:
+```sh
+conda activate adaclip_py310_nv
+conda create -n adaclip_py310_nv python=3.10 -y
+conda install -y pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 cudatoolkit=11.7 -c pytorch -c conda-forge
+pip install -r requirements.txt
+```
+## Install on Arc A770
+### Install Driver for Arc 770
+please fololow [Install Denpendency](doc/Install%20Dependency.md) to install Driver for Arc 770
+### Install oneapi
+You can refer to https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html
+```sh
+wget https://registrationcenter-download.intel.com/akdlm/IRC_NAS/dfc4a434-838c-4450-a6fe-2fa903b75aa7/intel-oneapi-base-toolkit-2025.0.1.46_offline.sh
+sudo sh ./intel-oneapi-base-toolkit-2025.0.1.46_offline.sh -a --silent --cli --eula accept
+```
+### Create a conda environment install IPEX and other lib
+#### Create a conda environment
+```sh
+conda create -n adaclip_py310 python=3.10 -y
+conda activate adaclip_py310
+```
+#### Install ipex
+You can refer to https://github.com/intel/intel-extension-for-pytorch
+```sh
+python -m pip install torch==2.5.1+cxx11.abi torchvision==0.20.1+cxx11.abi torchaudio==2.5.1+cxx11.abi intel-extension-for-pytorch==2.5.10+xpu oneccl_bind_pt==2.5.0+xpu --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/
+```
+Check xpu:
+```sh
+python
+import torch
+import intel_extension_for_pytorch
+torch.xpu.device_count()
+```
+#### Install requirements
+```sh
+pip install -r requirements.txt
+```
+# Prepare Datasets
 
-### Installation
-To set up the AdaCLIP environment, follow one of the methods below:
+## Datasets
+We mainly use `ActivityNet` to do finetune when development , you can also use other datasets.
 
-- Clone this repo:
-  ```shell
-  git clone https://github.com/caoyunkang/AdaCLIP.git && cd AdaCLIP
-  ```
-- You can use our provided installation script for an automated setup::
-  ```shell
-  sh install.sh
-  ```
-- If you prefer to construct the experimental environment manually, follow these steps:
-  ```shell
-  conda create -n AdaCLIP python=3.9.5 -y
-  conda activate AdaCLIP
-  pip install torch==1.10.1+cu111 torchvision==0.11.2+cu111 torchaudio==0.10.1 -f https://download.pytorch.org/whl/cu111/torch_stable.html
-  pip install tqdm tensorboard setuptools==58.0.4 opencv-python scikit-image scikit-learn matplotlib seaborn ftfy regex numpy==1.26.4
-  pip install gradio # Optional, for app 
-  ```
-- Remember to update the dataset root in config.py according to your preference:
-  ```python
-  DATA_ROOT = '../datasets' # Original setting
-  ```
+The following are some datasets used in AdaCLIP:
+### ActivityNet
 
-### Dataset Preparation 
-Please download our processed visual anomaly detection datasets to your `DATA_ROOT` as needed. 
+Download the videos from the [official website](http://activity-net.org/download.html). The authors have made the videos available on Google and Baidu drives.
+### MSRVTT
 
-#### Industrial Visual Anomaly Detection Datasets
-Note: some links are still in processing...
-
-| Dataset | Google Drive | Baidu Drive | Task
-|------------|------------------|------------------| ------------------|
-| MVTec AD    | [Google Drive](https://drive.google.com/file/d/12IukAqxOj497J4F0Mel-FvaONM030qwP/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1k36IMP4w32hY9BXOUM5ZmA?pwd=kxud) | Anomaly Detection & Localization |
-| VisA    | [Google Drive](https://drive.google.com/file/d/1U0MZVro5yGgaHNQ8kWb3U1a0Qlz4HiHI/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/15CIsP-ulZ1AN0_3quA068w?pwd=lmgc) | Anomaly Detection & Localization |
-| MPDD    | [Google Drive](https://drive.google.com/file/d/1cLkZs8pN8onQzfyNskeU_836JLjrtJz1/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/11T3mkloDCl7Hze5znkXOQA?pwd=4p7m) | Anomaly Detection & Localization | 
-| BTAD    | [Google Drive](https://drive.google.com/file/d/19Kd8jJLxZExwiTc9__6_r_jPqkmTXt4h/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1f4Tq-EXRz6iAswygH2WbFg?pwd=a60n) | Anomaly Detection & Localization |
-| KSDD    | [Google Drive](https://drive.google.com/file/d/13UidsM1taqEAVV_JJTBiCV1D3KUBpmpj/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/12EaOdkSbdK85WX5ajrfjQw?pwd=6n3z) | Anomaly Detection & Localization |
-| DAGM    | [Google Drive](https://drive.google.com/file/d/1f4sm8hpWQRzZMpvM-j7Q3xPG2vtdwvTy/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1JpDUJIksD99t003dNF1y9g?pwd=u3aq) | Anomaly Detection & Localization |
-| DTD-Synthetic    | [Google Drive](https://drive.google.com/file/d/1em51XXz5_aBNRJlJxxv3-Ed1dO9H3QgS/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/16FlvIBWtjaDzWxlZfWjNeg?pwd=aq5c) | Anomaly Detection & Localization |
-
-
-
-
-#### Medical Visual Anomaly Detection Datasets
-| Dataset | Google Drive | Baidu Drive | Task
-|------------|------------------|------------------|  ------------------|
-| HeadCT    | [Google Drive](https://drive.google.com/file/d/1ore0yCV31oLwwC--YUuTQfij-f2V32O2/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/16PfXWJlh6Y9vkecY9IownA?pwd=svsl) | Anomaly Detection |
-| BrainMRI    | [Google Drive](https://drive.google.com/file/d/1JLYyzcPG3ULY2J_aw1SY9esNujYm9GKd/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1UgGlTR-ABWAEiVUX-QSPhA?pwd=vh9e) | Anomaly Detection |
-| Br35H    | [Google Drive](https://drive.google.com/file/d/1qaZ6VJDRk3Ix3oVp3NpFyTsqXLJ_JjQy/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1yCS6t3ht6qwJgM06YsU3mg?pwd=ps1e) | Anomaly Detection |
-| ISIC    | [Google Drive](https://drive.google.com/file/d/1atZwmnFsz7mCsHWBZ8pkL_-Eul9bKFEx/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1Mf0w8RFY9ECZBEoNTyV3ZA?pwd=p954) | Anomaly Localization |
-| ColonDB    | [Google Drive](https://drive.google.com/file/d/1tjZ0o5dgzka3wf_p4ErSRJ9fcC-RJK8R/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1nJ4L65vfNFGpkK_OJjLoVg?pwd=v8q7) | Anomaly Localization |
-| ClinicDB    | [Google Drive](https://drive.google.com/file/d/1ciqZwMs1smSGDlwQ6tsr6YzylrqQBn9n/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1TPysfqhA_sXRPLGNwWBX6Q?pwd=3da6) | Anomaly Localization |
-| TN3K    | [Google Drive](https://drive.google.com/file/d/1LuKEMhrUGwFBlGCaej46WoooH89V3O8_/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1i5jMofCcRFcUdteq8VMEOQ?pwd=aoez) | Anomaly Localization |
-
-#### Custom Datasets
-To use your custom dataset, follow these steps:
-
-1. Refer to the instructions in `./data_preprocess` to generate the JSON file for your dataset.
-2. Use `./dataset/base_dataset.py` to construct your own dataset.
-
-
-### Weight Preparation
-
-We offer various pre-trained weights on different auxiliary datasets. 
-Please download the pre-trained weights in `./weights`.
-
-| Pre-trained Datasets | Google Drive | Baidu Drive 
-|------------|------------------|------------------|  
-| MVTec AD & ClinicDB    | [Google Drive](https://drive.google.com/file/d/1xVXANHGuJBRx59rqPRir7iqbkYzq45W0/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1K9JhNAmmDt4n5Sqlq4-5hQ?pwd=fks1) | 
-| VisA & ColonDB    | [Google Drive](https://drive.google.com/file/d/1QGmPB0ByPZQ7FucvGODMSz7r5Ke5wx9W/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1GmRCylpboPseT9lguCO9nw?pwd=fvvf) | 
-| All Datasets Mentioned Above   | [Google Drive](https://drive.google.com/file/d/1Cgkfx3GAaSYnXPLolx-P7pFqYV0IVzZF/view?usp=drive_link) | [Baidu Drive](https://pan.baidu.com/s/1J4aFAOhUbeYOBfZFbkOixA?pwd=0ts3) |
-
-
-### Train
-
-By default, we use MVTec AD & Colondb for training and VisA for validation:
-```shell
-CUDA_VISIBLE_DEVICES=0 python train.py --save_fig True --training_data mvtec colondb --testing_data visa
+The videos are shared by [Frozen in Time](https://github.com/m-bain/frozen-in-time#-finetuning-benchmarks-msr-vtt):
+```
+wget https://www.robots.ox.ac.uk/~maxbain/frozen-in-time/data/MSRVTT.zip
 ```
 
+### DiDeMo
 
-Alternatively, for evaluation on MVTec AD & Colondb, we use VisA & ClinicDB for training and MVTec AD for validation.
-```shell
-CUDA_VISIBLE_DEVICES=0 python train.py --save_fig True --training_data visa clinicdb --testing_data mvtec
-```
-Since we have utilized half-precision (FP16) for training, the training process can occasionally be unstable.
-It is recommended to run the training process multiple times and choose the best model based on performance
-on the validation set as the final model.
+The videos can be downloaded from [LisaAnne/LocalizingMoments](https://github.com/LisaAnne/LocalizingMoments).
 
+## Frame Extraction
 
-To construct a robust ZSAD model for demonstration, we also train our AdaCLIP on all AD datasets mentioned above:
-```shell
-CUDA_VISIBLE_DEVICES=0 python train.py --save_fig True \
---training_data \
-br35h brain_mri btad clinicdb colondb \
-dagm dtd headct isic mpdd mvtec sdd tn3k visa \
---testing_data mvtec
-```
+Run `utils/frame_extraction.py` to extract frames after having downloaded the dataset videos and annotations from the website. 
 
-### Test
+Make sure that all the videos are in the same directory (no sub-directories allowed).
 
-Manually select the best models from the validation set and place them in the `weights/` directory. Then, run the following testing script:
-```shell
-sh test.sh
-```
-
-If you want to test on a single image, you can refer to `test_single_image.sh`:
-```shell
-CUDA_VISIBLE_DEVICES=0 python test.py --testing_model image --ckt_path weights/pretrained_all.pth --save_fig True \
- --image_path asset/img.png --class_name candle --save_name test.png
-```
-
-## Main Results
-
-Due to differences in versions utilized, the reported performance may vary slightly compared to the detection performance 
-with the provided pre-trained weights. Some categories may show higher performance while others may show lower.
-
-![Table_industrial](./asset/Table_industrial.png)
-![Table_medical](./asset/Table_medical.png)
-![Fig_detection_results](./asset/Fig_detection_results.png)
-
-### :page_facing_up: Demo App
-
-To run the demo application, use the following command:
-
-```bash
-python app.py
-```
-
-Or visit our [Online Demo](https://huggingface.co/spaces/Caoyunkang/AdaCLIP) for a quick start. The three pre-trained weights mentioned are available there. Feel free to test them with your own data!
-
-Please note that we currently do not have a GPU environment for our Hugging Face Space, so inference for a single image may take approximately 50 seconds.
-
-![Demo](./asset/Fig_app.png)
-
-## 💘 Acknowledgements
-Our work is largely inspired by the following projects. Thanks for their admiring contribution.
-
-- [VAND-APRIL-GAN](https://github.com/ByChelsea/VAND-APRIL-GAN)
-- [AnomalyCLIP](https://github.com/zqhang/AnomalyCLIP)
-- [SAA](https://github.com/caoyunkang/Segment-Any-Anomaly)
-
-
-## Stargazers over time
-[![Stargazers over time](https://starchart.cc/caoyunkang/AdaCLIP.svg?variant=adaptive)](https://starchart.cc/caoyunkang/AdaCLIP)
-
-
-## Citation
-
-If you find this project helpful for your research, please consider citing the following BibTeX entry.
-
-```BibTex
-
-@inproceedings{AdaCLIP,
-  title={AdaCLIP: Adapting CLIP with Hybrid Learnable Prompts for Zero-Shot Anomaly Detection},
-  author={Cao, Yunkang and Zhang, Jiangning and Frittoli, Luca and Cheng, Yuqi and Shen, Weiming and Boracchi, Giacomo},
-  booktitle={European Conference on Computer Vision},
-  year={2024}
-}
+The frames from each video will be saved under: `/path/to/frames/video_name`
 
 ```
+python utils/frame_extraction.py /path/to/videos /path/to/frames --parallel
+```
+## Dataset JSON prepare
+Prepare dataset json as the following example: 
+```
+    "video_name": {
+        "sentences": [
+        "sentence 1",
+        "sentence 2",
+        ...
+        "sentence n"        
+        ]
+    }
+```
+Each data need video name and sentences that descripe the video content.
+
+An example json file is provided in :
+`CLIP_LLama_Factory/src/llamafactory/adaclip_finetune/dataset_example/dataset.json`
+# Implemented finetune methods
+
+We have implemented the BitFit and IBS fine-tuning methods.
+
+To fine-tune using different methods, you can utilize the corresponding configuration files located under `src/llamafactory/adaclip_finetune/cfgs`.
+For a more detailed guide, please refer to [How to Finetune](#how-to-finetune) section.
+## BitFit & SSF
+
+[BitFit: Simple Parameter-efficient Fine-tuning for Transformer-based Masked Language-models](https://aclanthology.org/2022.acl-short.1)  
+[Scaling & Shifting Your Features: A New Baseline for Efficient Model Tuning](https://papers.neurips.cc/paper_files/paper/2022/hash/00bb4e415ef117f2dee2fc3b778d806d-Abstract-Conference.html)  
+[Revisiting Batch Normalization For Practical Domain Adaptation](https://openreview.net/forum?id=Hk6dkJQFx)  
+
+
+Example
+
+```json
+    ...
+    "peft": {
+        "method": "bitfit", 
+        "config": {
+            "keep_module_keywords": [
+                "ln_post", 
+                "visual.proj", 
+                "ln_final", 
+                "text_projection", 
+                "logit_scale"
+            ]
+        }
+    }
+    ...
+```
+Config path: `src/llamafactory/adaclip_finetune/cfgs/peft/bitfit.json`
+
+**TODO**: check if the naive recusive monkey patch has problems.
+
+
+## Importance Based Selection (IBS)
+
+Select partial layers for finetune based on the parameter updates after training a given steps/epochs. The metric for importance can be either the l2 norm of param updates or angle based, which is introduced in the following paper:  
+
+[Angle-based Search Space Shrinking for Neural Architecture Search](https://www.ecva.net/papers/eccv_2020/papers_ECCV/html/3155_ECCV_2020_paper.php)
+
+Example
+
+```json
+    ...
+    "peft": {
+        "method": "ibs", 
+        "config": {
+            "pre_batch_size": 8, 
+            "num_pre_epochs": 2, 
+            "retain_ratio": 0.1, 
+            "metric": "l2norm", 
+            "normalization": true,  
+            "keep_module_keywords": [
+                "ln_post", 
+                "visual.proj", 
+                "ln_final", 
+                "text_projection", 
+                "logit_scale"
+            ]
+        }
+    }
+    ...
+```
+Config path: 
+`src/llamafactory/adaclip_finetune/cfgs/peft/ibs.json`
+## Performance of different finetune methods
+| Finetune method   | # frames | Top-k | epochs | batch size | LR(Main/CLIP) | % params | # train | # test | T2V: R1/R5 | V2T: R1/R5 |
+|-------------------|----------|-------|--------|------------|---------------|----------|---------|--------|------------|------------|
+| Full Finetune     | 32       | 16    | 30     | 16         | 1e-4/1e-7     | 100      | 5000    | 4917   | 37.9/68.2  | 38.5/69.3  |
+| IBS-G Finetune    | 32       | 16    | 30     | 16         | 1e-4/1e-7     | 8.314    | 5000    | 4917   | 36.8/67.4  | 38.4/68.3  |
+| BitFit Finetune   | 32       | 16    | 30     | 16         | 1e-4/2e-5     | 0.516    | 5000    | 4917   | 36.3/66.2  | 37.7/68.4  |
+# How to Finetune
+You can finetune AdaCLIP by using configs under `src/llamafactory/adaclip_finetune/cfgs`.
+
+You can modify the information in config jsons to meet your requirements,  like `train_annot`,`val_annot` and `test_annot` in the configs according to your own dataset.
+
+## Finetune on NVIDIA
+```sh
+cd src/llamafactory/adaclip_finetune
+```
+Finetune AdaCLIP with bitfit
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/bitfit.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pre-train/model --batch_size 8
+```
+
+Finetune AdaCLIP with ibs
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/ibs.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pre-train/model --batch_size 8
+```
+Full finetune
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/full-finetune.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pretrain/model --batch_size 8
+```
+
+## Finetune on Arc A770
+Currently only single card finetune is supported, you can specify the XPU with the following command:
+```sh
+export ZE_AFFINITY_MASK=the_card_number
+```
+Enter the AdaCLIP folder:
+```sh
+cd src/llamafactory/adaclip_finetune
+```
+Finetune AdaCLIP with bitfit
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/bitfit.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pretrain/model --xpu --batch_size 8
+```
+
+Finetune AdaCLIP with ibs
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/ibs.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pretrain/model --xpu --batch_size 8
+```
+Full finetune
+```sh
+python  train.py --config src/llamafactory/adaclip_finetune/cfgs/full-finetune.json --frames_dir  /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pretrain/model --xpu --batch_size 8
+```
+
+The finetune output will located in `src/llamafactory/adaclip_finetune/output`
+# Use optuna to automatic get the best param
+You can enable optuna to automatic get the best param by adding `optuna_cfg` configs to config files like:
+```sh
+    "optuna_cfg": {
+        "n_trials": 30,
+        "n_warmup_steps":10,
+        "sampler": {
+            "name": "TPESampler"
+        },
+        "opt_params": {
+            "coef_lr": {
+                "range": [0.02,0.5],
+                "log": false
+            },
+            "weight_decay": {
+                "range": [0.01,0.5],
+                "log": false
+            }
+        }
+    }
+```
+The config example is: `src/llamafactory/adaclip_finetune/cfgs/bitfit-optuna.json`
+|Config name|Description|
+|:--|:--|
+|n_trials|The max number of trials. Must be set to an integer.|
+|n_warmup_steps|The pruning is disabled until the trial exceeds the given number of step(epochs). Note that this feature assumes that step starts at zero.
+|sampler|Choose samplers which optuna uses. now support `TPESampler`,`CmaEsSampler` and `GPSampler`.|
+|opt_params|The parameters you want to optimize.|
+
+
+
+|Configs of opt_params|Description|
+|:--|:--|
+|range|The min and max value of the parameter.|
+|log|A flag to sample the value from the log domain or not. If log is true, the value is sampled from the range in the log domain. Otherwise, the value is sampled from the range in the linear domain.|
+
+
+If you want to continue train models with the best parameters after optuna optimization, add `--do_training_af_optuna` in your command line.
+
+Command example:
+```sh
+cd src/llamafactory/adaclip_finetune/train.py
+python train.py --config ./cfgs/bitfit-optuna.json --frames_dir /path/to/frames --top_k 16 --freeze_cnn --frame_agg mlp --resume /path/to/pre-train/model --xpu --batch_size 8
+```
+## Visualization
+You can review optuna tuning results by:
+```sh
+sudo ufw allow 8084
+optuna-dashboard --host 0.0.0.0 --port 8084 sqlite:///optuna.db
+```
+Open in the website:
+```
+http://<serverIP>:8084/dashboard
+```
+You can see finetune curves for different parameters and other infornations in the website.
+![alt text](optuna.png)
